@@ -10,12 +10,6 @@ const knex = Knex({
 
 Model.knex(knex);
 
-class Aggretated extends Model {
-  static get tableName() {
-    return 'aggregated';
-  }
-}
-
 async function createSchema() {
   if (await knex.schema.hasTable('aggregated')) {
     return;
@@ -26,19 +20,30 @@ async function createSchema() {
   await knex.schema.createTable('aggregated', table => {
     table.increments('id').primary();
     table.integer('value');
+    table.integer('version');
   });
+}
+
+class Aggretated extends Model {
+  static get tableName() {
+    return 'aggregated';
+  }
 }
 
 async function addValue (id, newValue) {
   const currentState = await Aggretated.query().findById(id)
   const rowsAffected = await Aggretated.query()
-    .update({ value: currentState.value + newValue })
-    .where('id', '=', id);
+    .update({ value: currentState.value + newValue, version: currentState.version + 1 })
+    .where('id', '=', id)
+    .where('version', '=', currentState.version);
   console.log('rowsAffected:', rowsAffected);
+  if (rowsAffected === 0) {
+    return addValue(id, newValue);
+  }
 }
 
 async function main() {
-  const { id } = await Aggretated.query().insert({ value: 10 });
+  const { id } = await Aggretated.query().insert({ value: 10, version: 1 });
 
   await Promise.all([
     addValue(id, 10),
