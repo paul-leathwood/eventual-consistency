@@ -1,5 +1,6 @@
 const { Model } = require('objection');
 const Knex = require('knex');
+const retry = require('retry')
 
 // Initialize knex.
 const knex = Knex({
@@ -26,19 +27,34 @@ async function createSchema() {
   await knex.schema.createTable('aggregated', table => {
     table.increments('id').primary();
     table.integer('value');
+    table.integer('version');
   });
 }
 
 async function addValue (id, newValue) {
-  const currentState = await Aggretated.query().findById(id)
-  const rowsAffected = await Aggretated.query()
-    .update({ value: currentState.value + newValue })
-    .where('id', '=', id);
-  console.log('rowsAffected:', rowsAffected);
+  const operation = retry.operation({ forever: true });
+  return new Promise((resolve, reject) => {
+    operation.attempt(async currentAttempt => {
+      console.log('Attempt #:', currentAttempt);
+
+      const currentState = await Aggretated.query().findById(id)
+      const rowsAffected = await Aggretated.query()
+        .update({ value: currentState.value + newValue, version: currentState.version + 1 })
+        .where('id', '=', id)
+        .where('version', '=', currentState.version);
+
+      if (rowsAffected === 1) {
+        resolve('Updated!');
+      } else {
+        operation.retry(new Error('NOT updated!'));
+        return;
+      }
+    })
+  })
 }
 
 async function main() {
-  const { id } = await Aggretated.query().insert({ value: 10 });
+  const { id } = await Aggretated.query().insert({ value: 10, version: 1 });
 
   await Promise.all([
     addValue(id, 10),
